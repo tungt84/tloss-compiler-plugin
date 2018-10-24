@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soot-plugins xmlns="http://github.com/Sable/soot/plugins">
+  <phase-plugin phase="jap.foo" class="org.tloss.compiler.soot.SootPlugin"/>
+</soot-plugins>

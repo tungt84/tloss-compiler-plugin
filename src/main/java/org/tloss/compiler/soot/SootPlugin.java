@@ -4,7 +4,7 @@ import soot.Transformer;
 import soot.plugins.SootPhasePlugin;
 import soot.plugins.model.PhasePluginDescription;
 
-public class SootPlugin implements SootPhasePlugin{
+public abstract class SootPlugin implements SootPhasePlugin{
 
 	public String[] getDeclaredOptions() {
 		return  new String [] {"opt"};
@@ -14,9 +14,11 @@ public class SootPlugin implements SootPhasePlugin{
 		
 		return new String [] {ENABLED_BY_DEFAULT, "opt:false"};
 	}
-
+	
+	public abstract TransformHelper getTransformHelper();
+	
 	public Transformer getTransformer() {
-		return new TLOSSTransformer();
+		return getTransformHelper();
 	}
 
 	public void setDescription(PhasePluginDescription pluginDescription) {

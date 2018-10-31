@@ -51,34 +51,12 @@ public class TlossCompiler {
 
 	public void runSoot(BuildResult result) throws Exception {
 		// Scene.v().addBasicClass("org.Test4",SootClass.HIERARCHY);
-		String[] args = new String[] { "-cp", result.getClassPath(), "--plugin", "plugin.xml", "-p", "jap.foo", "enabled:true", "-pp",
-				"-process-dir", result.getClassFolder(), "-f", "jimple" };
+		String[] args = new String[] { "-cp", result.getClassPath(), "--plugin", "plugin.xml", "-p", "jap.foo",
+				"enabled:true", "-p", "jb", "use-original-names:true", "-pp", "-process-dir", result.getClassFolder(), "-f",
+				"jimple" };
 		System.out.println("process-dir: " + result.getClassPath());
 		System.out.println("classpath: " + result.getClassFolder());
 		Main.main(args);
-		/*File sootOutput = new File("sootOutput");
-		sootOutput.listFiles(new FileFilter() {
-
-			public boolean accept(File pathname) {
-				if (pathname.isFile() && pathname.getName().endsWith("jimple")) {
-					FileInputStream aJIS;
-					try {
-						aJIS = new FileInputStream(pathname);
-						JimpleAST jimpleAST = new JimpleAST(aJIS);
-						soot.SootClass sootClass = jimpleAST.createSootClass();
-						System.out.println(sootClass);
-						List<SootMethod> methods = sootClass.getMethods();
-						for (SootMethod method : methods) {
-							System.out.println(method);
-						}
-					} catch (Exception e) {
-						throw new RuntimeException(e);
-					}
-
-				}
-				return false;
-			}
-		});*/
 
 	}
 

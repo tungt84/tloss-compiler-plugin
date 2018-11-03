@@ -1,19 +1,18 @@
 package org.tloss.compiler;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.FileInputStream;
-import java.util.List;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.nio.file.Path;
 import java.util.Properties;
 
-import soot.JimpleClassProvider;
-import soot.JimpleClassSource;
+import org.tloss.compiler.soot.CompileClassHelper;
+import org.tloss.compiler.soot.TransformHelper;
+
 import soot.Main;
-import soot.Scene;
-import soot.SootClass;
-import soot.SootMethod;
-import soot.jimple.parser.JimpleAST;
-import soot.jimple.parser.Parse;
 
 public class TlossCompiler {
 	public final String JAVA_COMPILER_HANDLER_CLASS = "JAVA_COMPILER_HANDLER_CLASS";
@@ -52,12 +51,58 @@ public class TlossCompiler {
 	public void runSoot(BuildResult result) throws Exception {
 		// Scene.v().addBasicClass("org.Test4",SootClass.HIERARCHY);
 		String[] args = new String[] { "-cp", result.getClassPath(), "--plugin", "plugin.xml", "-p", "jap.foo",
-				"enabled:true", "-p", "jb", "use-original-names:true", "-pp", "-process-dir", result.getClassFolder(), "-f",
-				"jimple" };
+				"enabled:true", "-p", "jb", "use-original-names:true", "-pp", "-process-dir", result.getClassFolder(),
+				"-f", "jimple" };
 		System.out.println("process-dir: " + result.getClassPath());
 		System.out.println("classpath: " + result.getClassFolder());
 		Main.main(args);
+		for (java.util.Map.Entry<String, Path> entry : TransformHelper.classNameMapping.entrySet()) {
+			File dir = entry.getValue().toFile();
+			final FileOutputStream fileOutputStream = new FileOutputStream(
+					entry.getKey() + "." + config.getProperty("COMPILE_EXT_FILE", "tmp"));
+			CompileClassHelper classHelper = (CompileClassHelper)Class.forName(config.getProperty("COMPILE_CLASS_HELPER_CLASS")).newInstance();
+			classHelper.compilePreClass(fileOutputStream,entry.getKey());
+			dir.listFiles(new FileFilter() {
+				public boolean accept(File pathname) {
+					if (pathname.isFile()) {
+						BufferedReader br = null;
+						FileReader fr = null;
+						try {
 
+							String sCurrentLine;
+							fr = new FileReader(pathname);
+							br = new BufferedReader(fr);
+							while ((sCurrentLine = br.readLine()) != null) {
+								fileOutputStream.write((sCurrentLine + "\n").getBytes("utf-8"));
+							}
+
+						} catch (Exception e) {
+
+						} finally {
+							try {
+								if (fr != null)
+									fr.close();
+							} catch (Exception e) {
+
+							}
+							try {
+								if (br != null)
+									br.close();
+							} catch (Exception e) {
+
+							}
+
+						}
+
+					}
+					return false;
+				}
+			});
+			classHelper.compileSubClass(fileOutputStream, entry.getKey());
+			fileOutputStream.flush();
+			fileOutputStream.close();
+			dir.delete();
+		}
 	}
 
 	public static void main(String[] args) throws Exception {

@@ -2,6 +2,7 @@ package org.tloss.compiler.soot;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +17,7 @@ import soot.PatchingChain;
 import soot.SootClass;
 import soot.SootMethod;
 import soot.Unit;
+import soot.jimple.IdentityStmt;
 import soot.util.Chain;
 
 public abstract class TransformHelper extends soot.BodyTransformer {
@@ -24,7 +26,8 @@ public abstract class TransformHelper extends soot.BodyTransformer {
 	public static Map<String, Path> classNameMapping = new HashMap<String, Path>();
 
 	protected abstract void internalTransform(OutputStream outputStream, SootClass sootClass, SootMethod method, Body b,
-			Chain<Local> locals, PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options);
+			Chain<Local> locals, PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options)
+			throws IOException;
 
 	@Override
 	protected void internalTransform(Body b, String phaseName, Map<String, String> options) {
@@ -75,7 +78,7 @@ public abstract class TransformHelper extends soot.BodyTransformer {
 			buffer.append("patchingChain:").append("\n");
 			Unit unit = patchingChain.getFirst();
 			do {
-				buffer.append(unit).append("\n");
+				buffer.append(unit).append("//").append(unit.getClass()).append(unit instanceof IdentityStmt).append("\n");
 				unit = patchingChain.getSuccOf(unit);
 			} while (unit != patchingChain.getLast());
 

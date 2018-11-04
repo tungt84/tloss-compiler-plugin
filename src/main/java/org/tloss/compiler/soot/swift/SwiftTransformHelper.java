@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -15,8 +16,15 @@ import soot.PatchingChain;
 import soot.SootClass;
 import soot.SootMethod;
 import soot.Unit;
+import soot.Value;
 import soot.ValueBox;
+import soot.jimple.AssignStmt;
+import soot.jimple.Constant;
 import soot.jimple.IdentityStmt;
+import soot.jimple.InvokeStmt;
+import soot.jimple.internal.AbstractInstanceFieldRef;
+import soot.jimple.internal.IdentityRefBox;
+import soot.jimple.internal.RValueBox;
 import soot.util.Chain;
 
 public class SwiftTransformHelper extends TransformHelper {
@@ -63,15 +71,67 @@ public class SwiftTransformHelper extends TransformHelper {
 			PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options) throws IOException {
 		for (Local l : locals.getElementsUnsorted()) {
 			if (!l.getName().equals("this"))
-				writer.write("let " + (l.getName().replace('$', '_')) + ":" + fromJavaType(l.getType()) + "\n");
+				writer.write("let " + (l.getName().replace('$', '_')) + ":" + fromJavaType(l.getType()) + ";\n");
 		}
 	}
 
-	public boolean compileValueBox(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
-			PatchingChain<Unit> patchingChain, ValueBox box, String phaseName, Map<String, String> options)
-			throws IOException {
-		logger.info(box.toString());
-		return true;
+	public boolean compileLValueBox(StringBuffer writer, SootClass sootClass, SootMethod method, Body b,
+			Chain<Local> locals, PatchingChain<Unit> patchingChain, Unit unit, ValueBox box, boolean skipThis,
+			String phaseName, Map<String, String> options) throws IOException {
+		if (skipThis && "this".equals(box.getValue().toString().trim()))
+			return true;
+		logger.info("compileLValueBox - value:" + box.getValue() + ",valueClass:" + box.getValue().getClass());
+		Value value = box.getValue();
+		if (value instanceof AbstractInstanceFieldRef) {
+			AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
+			writer.append(abstractInstanceFieldRef.getBase().toString() + "."
+					+ abstractInstanceFieldRef.getField().getName());
+			return false;
+		}
+		writer.append(box.getValue().toString().replace('$', '_'));
+		return false;
+	}
+
+	public boolean compileRValueBox(StringBuffer writer, SootClass sootClass, SootMethod method, Body b,
+			Chain<Local> locals, PatchingChain<Unit> patchingChain, Unit unit, ValueBox box, boolean skipThis,
+			String phaseName, Map<String, String> options) throws IOException {
+
+		if (box instanceof IdentityRefBox) {
+			IdentityRefBox identityRefBox = (IdentityRefBox) box;
+			Value value = identityRefBox.getValue();
+			if (value instanceof soot.jimple.ParameterRef) {
+				writer.append("_parameter" + ((soot.jimple.ParameterRef) value).getIndex());
+			} else {
+				throw new IOException("Unsupport IdentityRefBox - Value Class:" + value.getClass() + ",Unit:" + unit);
+			}
+			return false;
+		} else if (box instanceof RValueBox) {
+			Value value = box.getValue();
+			logger.info("compileRValueBox - value:" + value + ",valueClass:" + value.getClass());
+			if (value instanceof Constant) {
+				writer.append(box.getValue().toString());
+				return false;
+			} else if (value instanceof soot.jimple.internal.JNewExpr) {
+				return true;
+			} else if (value instanceof soot.jimple.internal.JimpleLocal) {
+				writer.append(box.getValue().toString().replace('$', '_'));
+				return false;
+			} else if (value instanceof AbstractInstanceFieldRef) {
+				AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
+				writer.append(abstractInstanceFieldRef.getBase().toString() + "."
+						+ abstractInstanceFieldRef.getField().getName());
+				return false;
+			} else if (value instanceof soot.jimple.StaticFieldRef) {
+				soot.jimple.StaticFieldRef staticFieldRef = (soot.jimple.StaticFieldRef) value;
+				writer.append(
+						fromJavaType(staticFieldRef.getField().getType()) + "." + staticFieldRef.getField().getName());
+				return false;
+			} else {
+				throw new IOException("Unsupport Value: " + value.getClass() + ",Unit:" + unit);
+			}
+		} else {
+			throw new IOException("Unsupport ValueBox: " + box.getClass() + ",Unit:" + unit);
+		}
 	}
 
 	public void compileIdentityStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
@@ -79,10 +139,94 @@ public class SwiftTransformHelper extends TransformHelper {
 			throws IOException {
 		ValueBox left = identityStmt.getLeftOpBox();
 		ValueBox right = identityStmt.getRightOpBox();
-		boolean skip = compileValueBox(writer, sootClass, method, b, locals, patchingChain, left, phaseName, options);
+		logger.info("compileIdentityStmt: " + identityStmt + "(" + left.getClass() + ":" + right.getClass() + ")");
+		StringBuffer buffer = new StringBuffer();
+		boolean skip = compileLValueBox(buffer, sootClass, method, b, locals, patchingChain, identityStmt, left, true,
+				phaseName, options);
 		if (!skip) {
-			writer.write("=");
-			compileValueBox(writer, sootClass, method, b, locals, patchingChain, right, phaseName, options);
+			buffer.append("=");
+			skip = compileRValueBox(buffer, sootClass, method, b, locals, patchingChain, identityStmt, right, true,
+					phaseName, options);
+			buffer.append(";\n");
+		}
+		if (!skip) {
+			writer.write(buffer.toString());
+		}
+	}
+
+	public void compileAssignStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
+			PatchingChain<Unit> patchingChain, AssignStmt assignStmt, String phaseName, Map<String, String> options)
+			throws IOException {
+		ValueBox left = assignStmt.getLeftOpBox();
+		ValueBox right = assignStmt.getRightOpBox();
+		logger.info("compileAssignStmt: " + assignStmt + "(" + left.getClass() + ":" + right.getClass() + ")");
+		StringBuffer buffer = new StringBuffer();
+		boolean skip = compileLValueBox(buffer, sootClass, method, b, locals, patchingChain, assignStmt, left, true,
+				phaseName, options);
+		if (!skip) {
+			buffer.append("=");
+			skip = compileRValueBox(buffer, sootClass, method, b, locals, patchingChain, assignStmt, right, true,
+					phaseName, options);
+			buffer.append(";\n");
+		}
+		if (!skip) {
+			writer.write(buffer.toString());
+		}
+	}
+
+	public void compileInvokeStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
+			PatchingChain<Unit> patchingChain, InvokeStmt invokeStmt, String phaseName, Map<String, String> options)
+			throws IOException {
+
+		logger.info("compileInvokeStmt: " + invokeStmt + ",invokeClass:" + invokeStmt.getInvokeExpr().getClass());
+		soot.jimple.InvokeExpr expr = invokeStmt.getInvokeExpr();
+		if (expr instanceof soot.jimple.internal.JVirtualInvokeExpr) {
+			soot.jimple.internal.JVirtualInvokeExpr invokeExpr = (soot.jimple.internal.JVirtualInvokeExpr) expr;
+			writer.write(
+					invokeExpr.getBase().toString().replace('$', '_') + "." + invokeExpr.getMethodRef().name() + "(");
+			int n = invokeExpr.getArgCount();
+			if (n > 0) {
+				for (int i = 0; i < n; i++) {
+					if (i == 0) {
+						writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
+					} else {
+						writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+					}
+				}
+			}
+			writer.write(");\n");
+		} else if (expr instanceof soot.jimple.internal.JSpecialInvokeExpr) {
+			soot.jimple.internal.JSpecialInvokeExpr invokeExpr = (soot.jimple.internal.JSpecialInvokeExpr) expr;
+			if (invokeExpr.getMethodRef().name().equals("<init>")) {
+				writer.write(invokeExpr.getBase().toString().replace('$', '_') + "= new "
+						+ fromJavaType(invokeExpr.getMethodRef().declaringClass().toString().replace('$', '.')) + "(");
+				int n = invokeExpr.getArgCount();
+				if (n > 0) {
+					for (int i = 0; i < n; i++) {
+						if (i == 0) {
+							writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
+						} else {
+							writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+						}
+					}
+				}
+				writer.write(");\n");
+			} else {
+				writer.write("super" + "." + invokeExpr.getMethodRef().name() + "(");
+				int n = invokeExpr.getArgCount();
+				if (n > 0) {
+					for (int i = 0; i < n; i++) {
+						if (i == 0) {
+							writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
+						} else {
+							writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+						}
+					}
+				}
+				writer.write(");\n");
+			}
+		} else {
+			throw new IOException("Unsupport InvokeExpr: " + expr.getClass() + ",Unit:" + invokeStmt);
 		}
 	}
 
@@ -90,14 +234,20 @@ public class SwiftTransformHelper extends TransformHelper {
 			PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options) throws IOException {
 		Unit unit = patchingChain.getFirst();
 		do {
-			unit = patchingChain.getSuccOf(unit);
 			if (unit instanceof IdentityStmt) {
 				IdentityStmt identityStmt = (IdentityStmt) unit;
-				// System.out.println("----"+identityStmt.getLeftOpBox() + ": " +
-				// identityStmt.getRightOpBox()+unit);
 				compileIdentityStmt(writer, sootClass, method, b, locals, patchingChain, identityStmt, phaseName,
 						options);
+			} else if (unit instanceof AssignStmt) {
+				AssignStmt assignStmt = (AssignStmt) unit;
+				compileAssignStmt(writer, sootClass, method, b, locals, patchingChain, assignStmt, phaseName, options);
+			} else if (unit instanceof InvokeStmt) {
+				InvokeStmt invokeStmt = (InvokeStmt) unit;
+				compileInvokeStmt(writer, sootClass, method, b, locals, patchingChain, invokeStmt, phaseName, options);
+			} else {
+				throw new IOException("Unsupport Unit: " + unit.getClass() + ",Unit:" + unit);
 			}
+			unit = patchingChain.getSuccOf(unit);
 		} while (unit != patchingChain.getLast());
 	}
 

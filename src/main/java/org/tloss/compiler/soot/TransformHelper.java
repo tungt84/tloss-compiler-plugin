@@ -17,7 +17,6 @@ import soot.PatchingChain;
 import soot.SootClass;
 import soot.SootMethod;
 import soot.Unit;
-import soot.jimple.IdentityStmt;
 import soot.util.Chain;
 
 public abstract class TransformHelper extends soot.BodyTransformer {
@@ -78,7 +77,7 @@ public abstract class TransformHelper extends soot.BodyTransformer {
 			buffer.append("patchingChain:").append("\n");
 			Unit unit = patchingChain.getFirst();
 			do {
-				buffer.append(unit).append("//").append(unit.getClass()).append(unit instanceof IdentityStmt).append("\n");
+				buffer.append(unit).append("//").append(unit.getClass()).append("\n");
 				unit = patchingChain.getSuccOf(unit);
 			} while (unit != patchingChain.getLast());
 

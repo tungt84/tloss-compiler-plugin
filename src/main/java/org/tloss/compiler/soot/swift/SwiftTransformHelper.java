@@ -3,8 +3,8 @@ package org.tloss.compiler.soot.swift;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.io.StringWriter;
 import java.io.Writer;
-import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -20,10 +20,15 @@ import soot.Value;
 import soot.ValueBox;
 import soot.jimple.AssignStmt;
 import soot.jimple.Constant;
+import soot.jimple.GotoStmt;
 import soot.jimple.IdentityStmt;
+import soot.jimple.IfStmt;
 import soot.jimple.InvokeStmt;
+import soot.jimple.ReturnStmt;
+import soot.jimple.ReturnVoidStmt;
 import soot.jimple.internal.AbstractInstanceFieldRef;
 import soot.jimple.internal.IdentityRefBox;
+import soot.jimple.internal.JVirtualInvokeExpr;
 import soot.jimple.internal.RValueBox;
 import soot.util.Chain;
 
@@ -126,7 +131,29 @@ public class SwiftTransformHelper extends TransformHelper {
 				writer.append(
 						fromJavaType(staticFieldRef.getField().getType()) + "." + staticFieldRef.getField().getName());
 				return false;
-			} else {
+			} else if (value instanceof soot.jimple.InstanceInvokeExpr) {
+				soot.jimple.InstanceInvokeExpr invokeExpr = (soot.jimple.InstanceInvokeExpr) value;
+				writer.append(invokeExpr.getBase().toString()).append(".")
+						.append(invokeExpr.getMethodRef().name() + "(");
+				int n = invokeExpr.getArgCount();
+				if (n > 0) {
+					for (int i = 0; i < n; i++) {
+						if (i == 0) {
+							writer.append(invokeExpr.getArg(i).toString().replace('$', '_'));
+						} else {
+							writer.append("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+						}
+					}
+				}
+				writer.append(")");
+				return false;
+			} else if (value instanceof soot.jimple.internal.JCastExpr) {
+				//TODO 
+				return false;
+			}else if (value instanceof soot.jimple.internal.JInstanceOfExpr) {
+				//TODO 
+				return false;
+			}else {
 				throw new IOException("Unsupport Value: " + value.getClass() + ",Unit:" + unit);
 			}
 		} else {
@@ -174,7 +201,7 @@ public class SwiftTransformHelper extends TransformHelper {
 		}
 	}
 
-	public void compileInvokeStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
+	public boolean compileInvokeStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
 			PatchingChain<Unit> patchingChain, InvokeStmt invokeStmt, String phaseName, Map<String, String> options)
 			throws IOException {
 
@@ -195,22 +222,44 @@ public class SwiftTransformHelper extends TransformHelper {
 				}
 			}
 			writer.write(");\n");
+			return false;
 		} else if (expr instanceof soot.jimple.internal.JSpecialInvokeExpr) {
 			soot.jimple.internal.JSpecialInvokeExpr invokeExpr = (soot.jimple.internal.JSpecialInvokeExpr) expr;
 			if (invokeExpr.getMethodRef().name().equals("<init>")) {
-				writer.write(invokeExpr.getBase().toString().replace('$', '_') + "= new "
-						+ fromJavaType(invokeExpr.getMethodRef().declaringClass().toString().replace('$', '.')) + "(");
-				int n = invokeExpr.getArgCount();
-				if (n > 0) {
-					for (int i = 0; i < n; i++) {
-						if (i == 0) {
-							writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
-						} else {
-							writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+				if (invokeExpr.getBase().toString().equals("this")) {
+					writer.write(invokeExpr.getBase().toString().replace('$', '_') + "= new "
+							+ fromJavaType(invokeExpr.getMethodRef().declaringClass().toString().replace('$', '.'))
+							+ "(");
+					int n = invokeExpr.getArgCount();
+					if (n > 0) {
+						for (int i = 0; i < n; i++) {
+							if (i == 0) {
+								writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
+							} else {
+								writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+							}
 						}
 					}
+					writer.write(");\n");
+					return true;
+				} else {
+					writer.write(invokeExpr.getBase().toString().replace('$', '_') + "= new "
+							+ fromJavaType(invokeExpr.getMethodRef().declaringClass().toString().replace('$', '.'))
+							+ "(");
+					int n = invokeExpr.getArgCount();
+					if (n > 0) {
+						for (int i = 0; i < n; i++) {
+							if (i == 0) {
+								writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
+							} else {
+								writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+							}
+						}
+					}
+					writer.write(");\n");
+					return false;
 				}
-				writer.write(");\n");
+
 			} else {
 				writer.write("super" + "." + invokeExpr.getMethodRef().name() + "(");
 				int n = invokeExpr.getArgCount();
@@ -224,15 +273,39 @@ public class SwiftTransformHelper extends TransformHelper {
 					}
 				}
 				writer.write(");\n");
+				return false;
 			}
 		} else {
 			throw new IOException("Unsupport InvokeExpr: " + expr.getClass() + ",Unit:" + invokeStmt);
 		}
 	}
 
-	public void compilePatchingChain(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
-			PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options) throws IOException {
+	public void compileIfStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
+			PatchingChain<Unit> patchingChain, IfStmt ifStmt, String phaseName, Map<String, String> options)
+			throws IOException {
+		// TODO
+
+	}
+
+	public void compileGotoStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
+			PatchingChain<Unit> patchingChain, GotoStmt ifStmt, String phaseName, Map<String, String> options)
+			throws IOException {
+		// TODO
+
+	}
+
+	public void compileReturnVoidStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
+			PatchingChain<Unit> patchingChain, ReturnVoidStmt ifStmt, String phaseName, Map<String, String> options)
+			throws IOException {
+		// TODO
+
+	}
+
+	public boolean compilePatchingChain(Writer writer, SootClass sootClass, SootMethod method, Body b,
+			Chain<Local> locals, PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options)
+			throws IOException {
 		Unit unit = patchingChain.getFirst();
+		boolean override = false;
 		do {
 			if (unit instanceof IdentityStmt) {
 				IdentityStmt identityStmt = (IdentityStmt) unit;
@@ -243,18 +316,43 @@ public class SwiftTransformHelper extends TransformHelper {
 				compileAssignStmt(writer, sootClass, method, b, locals, patchingChain, assignStmt, phaseName, options);
 			} else if (unit instanceof InvokeStmt) {
 				InvokeStmt invokeStmt = (InvokeStmt) unit;
-				compileInvokeStmt(writer, sootClass, method, b, locals, patchingChain, invokeStmt, phaseName, options);
+				boolean tmp = compileInvokeStmt(writer, sootClass, method, b, locals, patchingChain, invokeStmt,
+						phaseName, options);
+				override = override || tmp;
+			} else if (unit instanceof IfStmt) {
+				IfStmt ifStmt = (IfStmt) unit;
+				compileIfStmt(writer, sootClass, method, b, locals, patchingChain, ifStmt, phaseName, options);
+			} else if (unit instanceof soot.jimple.internal.JGotoStmt) {
+				soot.jimple.internal.JGotoStmt gotoStmt = (soot.jimple.internal.JGotoStmt) unit;
+				compileGotoStmt(writer, sootClass, method, b, locals, patchingChain, gotoStmt, phaseName, options);
+			} else if (unit instanceof ReturnVoidStmt) {
+				ReturnVoidStmt returnStmt = (ReturnVoidStmt) unit;
+				compileReturnVoidStmt(writer, sootClass, method, b, locals, patchingChain, returnStmt, phaseName, options);
 			} else {
 				throw new IOException("Unsupport Unit: " + unit.getClass() + ",Unit:" + unit);
 			}
 			unit = patchingChain.getSuccOf(unit);
 		} while (unit != patchingChain.getLast());
+		return override;
 	}
 
-	public void compileBody(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
+	/**
+	 * 
+	 * @param writer
+	 * @param sootClass
+	 * @param method
+	 * @param b
+	 * @param locals
+	 * @param patchingChain
+	 * @param phaseName
+	 * @param options
+	 * @return true neu can overwrite
+	 * @throws IOException
+	 */
+	public boolean compileBody(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
 			PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options) throws IOException {
 		defineLocals(writer, sootClass, method, b, locals, patchingChain, phaseName, options);
-		compilePatchingChain(writer, sootClass, method, b, locals, patchingChain, phaseName, options);
+		return compilePatchingChain(writer, sootClass, method, b, locals, patchingChain, phaseName, options);
 	}
 
 	@Override
@@ -264,20 +362,25 @@ public class SwiftTransformHelper extends TransformHelper {
 		if ("<init>".equals(method.getName())) {
 			// ham khoi tao
 			OutputStreamWriter writer = new OutputStreamWriter(outputStream, "utf-8");
+			StringWriter bodyWriter = new StringWriter();
 			int count = method.getParameterCount();
-			writer.write("init(");
+			bodyWriter.write("init(");
 			if (count > 0) {
 				for (int i = 0; i < count; i++) {
 					if (i == 0) {
-						writer.write("_ _parameter" + i + ":" + fromJavaType(method.getParameterType(i)));
+						bodyWriter.write("_ _parameter" + i + ":" + fromJavaType(method.getParameterType(i)));
 					} else {
-						writer.write(",_ _parameter" + i + ":" + fromJavaType(method.getParameterType(i)));
+						bodyWriter.write(",_ _parameter" + i + ":" + fromJavaType(method.getParameterType(i)));
 					}
 				}
 			}
-			writer.write(") {\n");
-			compileBody(writer, sootClass, method, b, locals, patchingChain, phaseName, options);
-			writer.write("}\n");
+			bodyWriter.write(") {\n");
+			boolean override = compileBody(bodyWriter, sootClass, method, b, locals, patchingChain, phaseName, options);
+			bodyWriter.write("}\n");
+			if (override) {
+				writer.write("override ");
+			}
+			writer.write(bodyWriter.toString());
 			writer.flush();
 			writer.close();
 		} else {

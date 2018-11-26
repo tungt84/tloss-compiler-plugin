@@ -5,6 +5,9 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -24,11 +27,10 @@ import soot.jimple.GotoStmt;
 import soot.jimple.IdentityStmt;
 import soot.jimple.IfStmt;
 import soot.jimple.InvokeStmt;
-import soot.jimple.ReturnStmt;
 import soot.jimple.ReturnVoidStmt;
 import soot.jimple.internal.AbstractInstanceFieldRef;
 import soot.jimple.internal.IdentityRefBox;
-import soot.jimple.internal.JVirtualInvokeExpr;
+import soot.jimple.internal.JReturnStmt;
 import soot.jimple.internal.RValueBox;
 import soot.util.Chain;
 
@@ -76,7 +78,7 @@ public class SwiftTransformHelper extends TransformHelper {
 			PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options) throws IOException {
 		for (Local l : locals.getElementsUnsorted()) {
 			if (!l.getName().equals("this"))
-				writer.write("let " + (l.getName().replace('$', '_')) + ":" + fromJavaType(l.getType()) + ";\n");
+				writer.write("let " + (toVariableName(l.getName())) + ":" + fromJavaType(l.getType()) + ";\n");
 		}
 	}
 
@@ -93,8 +95,32 @@ public class SwiftTransformHelper extends TransformHelper {
 					+ abstractInstanceFieldRef.getField().getName());
 			return false;
 		}
-		writer.append(box.getValue().toString().replace('$', '_'));
+		writer.append(toVariableName(box.getValue().toString()));
 		return false;
+	}
+
+	public String toVariableName(String var) {
+		if ("this".equals(var)) {
+			return "self";
+		}
+		var = var.toString().replace('$', '_');
+		return var;
+	}
+
+	public void compileJStaticInvokeExpr(StringBuffer writer, soot.jimple.internal.JStaticInvokeExpr v) {
+		SootClass c = v.getMethod().getDeclaringClass();
+		writer.append(fromJavaType(c.toString())).append(".").append(v.getMethod().getName()).append("(");
+		int n = v.getArgCount();
+		if (n > 0) {
+			for (int i = 0; i < n; i++) {
+				if (i == 0) {
+					writer.append(toVariableName(v.getArg(i).toString()));
+				} else {
+					writer.append("," + toVariableName(v.getArg(i).toString()));
+				}
+			}
+		}
+		writer.append(")");
 	}
 
 	public boolean compileRValueBox(StringBuffer writer, SootClass sootClass, SootMethod method, Body b,
@@ -119,7 +145,7 @@ public class SwiftTransformHelper extends TransformHelper {
 			} else if (value instanceof soot.jimple.internal.JNewExpr) {
 				return true;
 			} else if (value instanceof soot.jimple.internal.JimpleLocal) {
-				writer.append(box.getValue().toString().replace('$', '_'));
+				writer.append(toVariableName(box.getValue().toString()));
 				return false;
 			} else if (value instanceof AbstractInstanceFieldRef) {
 				AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
@@ -133,27 +159,33 @@ public class SwiftTransformHelper extends TransformHelper {
 				return false;
 			} else if (value instanceof soot.jimple.InstanceInvokeExpr) {
 				soot.jimple.InstanceInvokeExpr invokeExpr = (soot.jimple.InstanceInvokeExpr) value;
-				writer.append(invokeExpr.getBase().toString()).append(".")
+				writer.append(toVariableName(invokeExpr.getBase().toString())).append(".")
 						.append(invokeExpr.getMethodRef().name() + "(");
 				int n = invokeExpr.getArgCount();
 				if (n > 0) {
 					for (int i = 0; i < n; i++) {
 						if (i == 0) {
-							writer.append(invokeExpr.getArg(i).toString().replace('$', '_'));
+							writer.append(toVariableName(invokeExpr.getArg(i).toString()));
 						} else {
-							writer.append("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+							writer.append("," + toVariableName(invokeExpr.getArg(i).toString()));
 						}
 					}
 				}
 				writer.append(")");
 				return false;
 			} else if (value instanceof soot.jimple.internal.JCastExpr) {
-				//TODO 
+				soot.jimple.internal.JCastExpr v = (soot.jimple.internal.JCastExpr) value;
+				writer.append(toVariableName(v.getOp().toString()) + " as " + fromJavaType(v.getCastType()));
 				return false;
-			}else if (value instanceof soot.jimple.internal.JInstanceOfExpr) {
-				//TODO 
+			} else if (value instanceof soot.jimple.internal.JInstanceOfExpr) {
+				soot.jimple.internal.JInstanceOfExpr v = (soot.jimple.internal.JInstanceOfExpr) value;
+				writer.append(toVariableName(v.getOp().toString()) + " is " + fromJavaType(v.getCheckType()));
 				return false;
-			}else {
+			} else if (value instanceof soot.jimple.internal.JStaticInvokeExpr) {
+				soot.jimple.internal.JStaticInvokeExpr v = (soot.jimple.internal.JStaticInvokeExpr) value;
+				compileJStaticInvokeExpr(writer, v);
+				return false;
+			} else {
 				throw new IOException("Unsupport Value: " + value.getClass() + ",Unit:" + unit);
 			}
 		} else {
@@ -210,14 +242,14 @@ public class SwiftTransformHelper extends TransformHelper {
 		if (expr instanceof soot.jimple.internal.JVirtualInvokeExpr) {
 			soot.jimple.internal.JVirtualInvokeExpr invokeExpr = (soot.jimple.internal.JVirtualInvokeExpr) expr;
 			writer.write(
-					invokeExpr.getBase().toString().replace('$', '_') + "." + invokeExpr.getMethodRef().name() + "(");
+					toVariableName(invokeExpr.getBase().toString()) + "." + invokeExpr.getMethodRef().name() + "(");
 			int n = invokeExpr.getArgCount();
 			if (n > 0) {
 				for (int i = 0; i < n; i++) {
 					if (i == 0) {
-						writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
+						writer.write(toVariableName(invokeExpr.getArg(i).toString()));
 					} else {
-						writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+						writer.write("," + toVariableName(invokeExpr.getArg(i).toString()));
 					}
 				}
 			}
@@ -227,32 +259,36 @@ public class SwiftTransformHelper extends TransformHelper {
 			soot.jimple.internal.JSpecialInvokeExpr invokeExpr = (soot.jimple.internal.JSpecialInvokeExpr) expr;
 			if (invokeExpr.getMethodRef().name().equals("<init>")) {
 				if (invokeExpr.getBase().toString().equals("this")) {
-					writer.write(invokeExpr.getBase().toString().replace('$', '_') + "= new "
-							+ fromJavaType(invokeExpr.getMethodRef().declaringClass().toString().replace('$', '.'))
-							+ "(");
-					int n = invokeExpr.getArgCount();
-					if (n > 0) {
-						for (int i = 0; i < n; i++) {
-							if (i == 0) {
-								writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
-							} else {
-								writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+					if (!"java.lang.Object".equals(invokeExpr.getMethodRef().declaringClass().toString())) {
+						writer.write("super.init" + "(");
+						int n = invokeExpr.getArgCount();
+						if (n > 0) {
+							for (int i = 0; i < n; i++) {
+								if (i == 0) {
+									writer.write(toVariableName(invokeExpr.getArg(i).toString()));
+								} else {
+									writer.write("," + toVariableName(invokeExpr.getArg(i).toString()));
+								}
 							}
 						}
+						writer.write(");\n");
+						return true;
+					} else {
+						// skip specialinvoke this.<java.lang.Object: void <init>()>();
+						return false;
 					}
-					writer.write(");\n");
-					return true;
+
 				} else {
-					writer.write(invokeExpr.getBase().toString().replace('$', '_') + "= new "
+					writer.write(toVariableName(invokeExpr.getBase().toString()) + "="
 							+ fromJavaType(invokeExpr.getMethodRef().declaringClass().toString().replace('$', '.'))
 							+ "(");
 					int n = invokeExpr.getArgCount();
 					if (n > 0) {
 						for (int i = 0; i < n; i++) {
 							if (i == 0) {
-								writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
+								writer.write(toVariableName(invokeExpr.getArg(i).toString()));
 							} else {
-								writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+								writer.write("," + toVariableName(invokeExpr.getArg(i).toString()));
 							}
 						}
 					}
@@ -266,15 +302,20 @@ public class SwiftTransformHelper extends TransformHelper {
 				if (n > 0) {
 					for (int i = 0; i < n; i++) {
 						if (i == 0) {
-							writer.write(invokeExpr.getArg(i).toString().replace('$', '_'));
+							writer.write(toVariableName(invokeExpr.getArg(i).toString()));
 						} else {
-							writer.write("," + invokeExpr.getArg(i).toString().replace('$', '_'));
+							writer.write("," + toVariableName(invokeExpr.getArg(i).toString()));
 						}
 					}
 				}
 				writer.write(");\n");
 				return false;
 			}
+		} else if (expr instanceof soot.jimple.internal.JStaticInvokeExpr) {
+			StringBuffer buffer = new StringBuffer();
+			compileJStaticInvokeExpr(buffer, (soot.jimple.internal.JStaticInvokeExpr) expr);
+			writer.write(buffer.toString() + ";\n");
+			return false;
 		} else {
 			throw new IOException("Unsupport InvokeExpr: " + expr.getClass() + ",Unit:" + invokeStmt);
 		}
@@ -291,22 +332,61 @@ public class SwiftTransformHelper extends TransformHelper {
 			PatchingChain<Unit> patchingChain, GotoStmt ifStmt, String phaseName, Map<String, String> options)
 			throws IOException {
 		// TODO
-
+		
 	}
 
-	public void compileReturnVoidStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
-			PatchingChain<Unit> patchingChain, ReturnVoidStmt ifStmt, String phaseName, Map<String, String> options)
-			throws IOException {
-		// TODO
-
+	public void compileReturnVoidStmt(Writer writer, SootClass sootClass, SootMethod method, Body b,
+			Chain<Local> locals, PatchingChain<Unit> patchingChain, ReturnVoidStmt ifStmt, String phaseName,
+			Map<String, String> options) throws IOException {
+		writer.write("return;\n");
 	}
 
-	public boolean compilePatchingChain(Writer writer, SootClass sootClass, SootMethod method, Body b,
-			Chain<Local> locals, PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options)
+	public void compileReturnStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
+			PatchingChain<Unit> patchingChain, JReturnStmt ifStmt, String phaseName, Map<String, String> options)
 			throws IOException {
+		writer.write("return " + toVariableName(ifStmt.getOp().toString()) + ";\n");
+	}
+
+	public List<Label> preCompile(PatchingChain<Unit> patchingChain) {
+		List<Label> labels = new ArrayList<Label>();
+		Unit unit = patchingChain.getFirst();
+		int i = 1;
+		do {
+
+			if (unit instanceof IfStmt) {
+				IfStmt ifStmt = (IfStmt) unit;
+				Label label = new Label("label" + i, ifStmt.getTarget());
+				i++;
+				labels.add(label);
+
+			} else if (unit instanceof soot.jimple.internal.JGotoStmt) {
+				soot.jimple.internal.JGotoStmt gotoStmt = (soot.jimple.internal.JGotoStmt) unit;
+				Label label = new Label("label" + i, gotoStmt.getTarget());
+				i++;
+				labels.add(label);
+			}
+			unit = patchingChain.getSuccOf(unit);
+		} while (unit != null);
+		return labels;
+	}
+
+	public boolean compilePatchingChain(List<Label> labels, Writer writer, SootClass sootClass, SootMethod method,
+			Body b, Chain<Local> locals, PatchingChain<Unit> patchingChain, String phaseName,
+			Map<String, String> options) throws IOException {
 		Unit unit = patchingChain.getFirst();
 		boolean override = false;
+		writer.write("let __label__control=\"START\";\n");
+		writer.write("while(__label__control != \"STOP\"){\n");
+		writer.write("switch (__label__control){\n");
+		writer.write("default:");
 		do {
+			boolean  labeled =  false;
+			for(int i=0;i<labels.size()&&!labeled;i++) {
+				if(unit.equals(labels.get(i).getUnit())) {
+					labeled = true;
+					writer.write("case \""+labels.get(i).getLabel()+"\":");
+				}
+			}
 			if (unit instanceof IdentityStmt) {
 				IdentityStmt identityStmt = (IdentityStmt) unit;
 				compileIdentityStmt(writer, sootClass, method, b, locals, patchingChain, identityStmt, phaseName,
@@ -327,12 +407,18 @@ public class SwiftTransformHelper extends TransformHelper {
 				compileGotoStmt(writer, sootClass, method, b, locals, patchingChain, gotoStmt, phaseName, options);
 			} else if (unit instanceof ReturnVoidStmt) {
 				ReturnVoidStmt returnStmt = (ReturnVoidStmt) unit;
-				compileReturnVoidStmt(writer, sootClass, method, b, locals, patchingChain, returnStmt, phaseName, options);
+				compileReturnVoidStmt(writer, sootClass, method, b, locals, patchingChain, returnStmt, phaseName,
+						options);
+			} else if (unit instanceof soot.jimple.internal.JReturnStmt) {
+				soot.jimple.internal.JReturnStmt returnStmt = (soot.jimple.internal.JReturnStmt) unit;
+				compileReturnStmt(writer, sootClass, method, b, locals, patchingChain, returnStmt, phaseName, options);
 			} else {
 				throw new IOException("Unsupport Unit: " + unit.getClass() + ",Unit:" + unit);
 			}
 			unit = patchingChain.getSuccOf(unit);
-		} while (unit != patchingChain.getLast());
+		} while (unit != null);
+		writer.write("}\n");
+		writer.write("}\n");
 		return override;
 	}
 
@@ -352,7 +438,8 @@ public class SwiftTransformHelper extends TransformHelper {
 	public boolean compileBody(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
 			PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options) throws IOException {
 		defineLocals(writer, sootClass, method, b, locals, patchingChain, phaseName, options);
-		return compilePatchingChain(writer, sootClass, method, b, locals, patchingChain, phaseName, options);
+		List<Label> labels = preCompile(patchingChain);
+		return compilePatchingChain(labels, writer, sootClass, method, b, locals, patchingChain, phaseName, options);
 	}
 
 	@Override
@@ -385,6 +472,9 @@ public class SwiftTransformHelper extends TransformHelper {
 			writer.close();
 		} else {
 			OutputStreamWriter writer = new OutputStreamWriter(outputStream, "utf-8");
+			if (Modifier.toString(method.getModifiers()).contains("static")) {
+				writer.write("static ");
+			}
 			int count = method.getParameterCount();
 			writer.write("func ");
 			writer.write(method.getName());

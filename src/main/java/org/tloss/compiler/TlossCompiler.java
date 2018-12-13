@@ -58,7 +58,9 @@ public class TlossCompiler {
 		Main.main(args);
 		for (java.util.Map.Entry<String, Path> entry : TransformHelper.classNameMapping.entrySet()) {
 			File dir = entry.getValue().toFile();
+			
 			final FileOutputStream fileOutputStream = new FileOutputStream(
+					config.getProperty("COMPILE_OUT_FOLDER","")+
 					entry.getKey() + "." + config.getProperty("COMPILE_EXT_FILE", "tmp"));
 			CompileClassHelper classHelper = (CompileClassHelper)Class.forName(config.getProperty("COMPILE_CLASS_HELPER_CLASS")).newInstance();
 			classHelper.compilePreClass(fileOutputStream,entry.getKey());

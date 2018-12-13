@@ -6,7 +6,10 @@ import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -17,21 +20,26 @@ import soot.Body;
 import soot.Local;
 import soot.PatchingChain;
 import soot.SootClass;
+import soot.SootField;
 import soot.SootMethod;
 import soot.Unit;
 import soot.Value;
 import soot.ValueBox;
 import soot.jimple.AssignStmt;
 import soot.jimple.Constant;
+import soot.jimple.EqExpr;
+import soot.jimple.GeExpr;
 import soot.jimple.GotoStmt;
+import soot.jimple.GtExpr;
 import soot.jimple.IdentityStmt;
 import soot.jimple.IfStmt;
 import soot.jimple.InvokeStmt;
+import soot.jimple.LeExpr;
+import soot.jimple.LtExpr;
+import soot.jimple.NeExpr;
 import soot.jimple.ReturnVoidStmt;
 import soot.jimple.internal.AbstractInstanceFieldRef;
-import soot.jimple.internal.IdentityRefBox;
 import soot.jimple.internal.JReturnStmt;
-import soot.jimple.internal.RValueBox;
 import soot.util.Chain;
 
 public class SwiftTransformHelper extends TransformHelper {
@@ -63,7 +71,7 @@ public class SwiftTransformHelper extends TransformHelper {
 			return "Character";
 		}
 		if (className.indexOf('.') >= 0) {
-			return className.replace('.', '_');
+			return className.replace('.', '_').replace('$', '_');
 		}
 		return null;
 	}
@@ -91,7 +99,7 @@ public class SwiftTransformHelper extends TransformHelper {
 		Value value = box.getValue();
 		if (value instanceof AbstractInstanceFieldRef) {
 			AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
-			writer.append(abstractInstanceFieldRef.getBase().toString() + "."
+			writer.append(toVariableName(abstractInstanceFieldRef.getBase().toString()) + "."
 					+ abstractInstanceFieldRef.getField().getName());
 			return false;
 		}
@@ -127,69 +135,111 @@ public class SwiftTransformHelper extends TransformHelper {
 			Chain<Local> locals, PatchingChain<Unit> patchingChain, Unit unit, ValueBox box, boolean skipThis,
 			String phaseName, Map<String, String> options) throws IOException {
 
-		if (box instanceof IdentityRefBox) {
-			IdentityRefBox identityRefBox = (IdentityRefBox) box;
-			Value value = identityRefBox.getValue();
-			if (value instanceof soot.jimple.ParameterRef) {
-				writer.append("_parameter" + ((soot.jimple.ParameterRef) value).getIndex());
-			} else {
-				throw new IOException("Unsupport IdentityRefBox - Value Class:" + value.getClass() + ",Unit:" + unit);
-			}
+		Value value = box.getValue();
+		logger.info("compileRValueBox - value:" + value + ",valueClass:" + value.getClass());
+		if (value instanceof soot.jimple.ParameterRef) {
+			writer.append("_parameter" + ((soot.jimple.ParameterRef) value).getIndex());
 			return false;
-		} else if (box instanceof RValueBox) {
-			Value value = box.getValue();
-			logger.info("compileRValueBox - value:" + value + ",valueClass:" + value.getClass());
-			if (value instanceof Constant) {
-				writer.append(box.getValue().toString());
-				return false;
-			} else if (value instanceof soot.jimple.internal.JNewExpr) {
-				return true;
-			} else if (value instanceof soot.jimple.internal.JimpleLocal) {
-				writer.append(toVariableName(box.getValue().toString()));
-				return false;
-			} else if (value instanceof AbstractInstanceFieldRef) {
-				AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
-				writer.append(abstractInstanceFieldRef.getBase().toString() + "."
-						+ abstractInstanceFieldRef.getField().getName());
-				return false;
-			} else if (value instanceof soot.jimple.StaticFieldRef) {
-				soot.jimple.StaticFieldRef staticFieldRef = (soot.jimple.StaticFieldRef) value;
-				writer.append(
-						fromJavaType(staticFieldRef.getField().getType()) + "." + staticFieldRef.getField().getName());
-				return false;
-			} else if (value instanceof soot.jimple.InstanceInvokeExpr) {
-				soot.jimple.InstanceInvokeExpr invokeExpr = (soot.jimple.InstanceInvokeExpr) value;
-				writer.append(toVariableName(invokeExpr.getBase().toString())).append(".")
-						.append(invokeExpr.getMethodRef().name() + "(");
-				int n = invokeExpr.getArgCount();
-				if (n > 0) {
-					for (int i = 0; i < n; i++) {
-						if (i == 0) {
-							writer.append(toVariableName(invokeExpr.getArg(i).toString()));
-						} else {
-							writer.append("," + toVariableName(invokeExpr.getArg(i).toString()));
-						}
+		} else if (value instanceof Constant) {
+			writer.append(box.getValue().toString());
+			return false;
+		} else if (value instanceof soot.jimple.internal.JNewExpr) {
+			return true;
+		} else if (value instanceof soot.jimple.internal.JimpleLocal) {
+			writer.append(toVariableName(box.getValue().toString()));
+			return false;
+		} else if (value instanceof AbstractInstanceFieldRef) {
+			AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
+			writer.append(toVariableName(abstractInstanceFieldRef.getBase().toString()) + "."
+					+ abstractInstanceFieldRef.getField().getName());
+			return false;
+		} else if (value instanceof soot.jimple.StaticFieldRef) {
+			soot.jimple.StaticFieldRef staticFieldRef = (soot.jimple.StaticFieldRef) value;
+			writer.append(
+					fromJavaType(staticFieldRef.getField().getType()) + "." + staticFieldRef.getField().getName());
+			return false;
+		} else if (value instanceof soot.jimple.InstanceInvokeExpr) {
+			soot.jimple.InstanceInvokeExpr invokeExpr = (soot.jimple.InstanceInvokeExpr) value;
+			writer.append(toVariableName(invokeExpr.getBase().toString())).append(".")
+					.append(invokeExpr.getMethodRef().name() + "(");
+			int n = invokeExpr.getArgCount();
+			if (n > 0) {
+				for (int i = 0; i < n; i++) {
+					if (i == 0) {
+						writer.append(toVariableName(invokeExpr.getArg(i).toString()));
+					} else {
+						writer.append("," + toVariableName(invokeExpr.getArg(i).toString()));
 					}
 				}
-				writer.append(")");
+			}
+			writer.append(")");
+			return false;
+		} else if (value instanceof soot.jimple.internal.JCastExpr) {
+			soot.jimple.internal.JCastExpr v = (soot.jimple.internal.JCastExpr) value;
+			writer.append(toVariableName(v.getOp().toString()) + " as " + fromJavaType(v.getCastType()));
+			return false;
+		} else if (value instanceof soot.jimple.internal.JInstanceOfExpr) {
+			soot.jimple.internal.JInstanceOfExpr v = (soot.jimple.internal.JInstanceOfExpr) value;
+			writer.append(toVariableName(v.getOp().toString()) + " is " + fromJavaType(v.getCheckType()));
+			return false;
+		} else if (value instanceof soot.jimple.internal.JStaticInvokeExpr) {
+			soot.jimple.internal.JStaticInvokeExpr v = (soot.jimple.internal.JStaticInvokeExpr) value;
+			compileJStaticInvokeExpr(writer, v);
+			return false;
+		} else if (value instanceof soot.jimple.ConditionExpr) {
+			if (value instanceof EqExpr) {
+				EqExpr eqExpr = (EqExpr) value;
+				compileLValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp1Box(),
+						skipThis, phaseName, options);
+				writer.append("==");
+				compileRValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp2Box(),
+						skipThis, phaseName, options);
 				return false;
-			} else if (value instanceof soot.jimple.internal.JCastExpr) {
-				soot.jimple.internal.JCastExpr v = (soot.jimple.internal.JCastExpr) value;
-				writer.append(toVariableName(v.getOp().toString()) + " as " + fromJavaType(v.getCastType()));
+			} else if (value instanceof GeExpr) {
+				GeExpr eqExpr = (GeExpr) value;
+				compileLValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp1Box(),
+						skipThis, phaseName, options);
+				writer.append(">=");
+				compileRValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp2Box(),
+						skipThis, phaseName, options);
 				return false;
-			} else if (value instanceof soot.jimple.internal.JInstanceOfExpr) {
-				soot.jimple.internal.JInstanceOfExpr v = (soot.jimple.internal.JInstanceOfExpr) value;
-				writer.append(toVariableName(v.getOp().toString()) + " is " + fromJavaType(v.getCheckType()));
+			} else if (value instanceof GtExpr) {
+				GtExpr eqExpr = (GtExpr) value;
+				compileLValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp1Box(),
+						skipThis, phaseName, options);
+				writer.append(">");
+				compileRValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp2Box(),
+						skipThis, phaseName, options);
 				return false;
-			} else if (value instanceof soot.jimple.internal.JStaticInvokeExpr) {
-				soot.jimple.internal.JStaticInvokeExpr v = (soot.jimple.internal.JStaticInvokeExpr) value;
-				compileJStaticInvokeExpr(writer, v);
+			} else if (value instanceof LeExpr) {
+				LeExpr eqExpr = (LeExpr) value;
+				compileLValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp1Box(),
+						skipThis, phaseName, options);
+				writer.append("<=");
+				compileRValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp2Box(),
+						skipThis, phaseName, options);
+				return false;
+			} else if (value instanceof LtExpr) {
+				LtExpr eqExpr = (LtExpr) value;
+				compileLValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp1Box(),
+						skipThis, phaseName, options);
+				writer.append("<");
+				compileRValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp2Box(),
+						skipThis, phaseName, options);
+				return false;
+			} else if (value instanceof NeExpr) {
+				NeExpr eqExpr = (NeExpr) value;
+				compileLValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp1Box(),
+						skipThis, phaseName, options);
+				writer.append("!=");
+				compileRValueBox(writer, sootClass, method, b, locals, patchingChain, unit, eqExpr.getOp2Box(),
+						skipThis, phaseName, options);
 				return false;
 			} else {
 				throw new IOException("Unsupport Value: " + value.getClass() + ",Unit:" + unit);
 			}
 		} else {
-			throw new IOException("Unsupport ValueBox: " + box.getClass() + ",Unit:" + unit);
+			throw new IOException("Unsupport Value: " + value.getClass() + ",Unit:" + unit);
 		}
 	}
 
@@ -321,18 +371,36 @@ public class SwiftTransformHelper extends TransformHelper {
 		}
 	}
 
-	public void compileIfStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
-			PatchingChain<Unit> patchingChain, IfStmt ifStmt, String phaseName, Map<String, String> options)
-			throws IOException {
-		// TODO
-
+	public void compileIfStmt(List<Label> labels, Writer writer, SootClass sootClass, SootMethod method, Body b,
+			Chain<Local> locals, PatchingChain<Unit> patchingChain, IfStmt ifStmt, String phaseName,
+			Map<String, String> options) throws IOException {
+		StringBuffer buffer = new StringBuffer();
+		buffer.append("if (");
+		compileRValueBox(buffer, sootClass, method, b, locals, patchingChain, ifStmt, ifStmt.getConditionBox(), false,
+				phaseName, options);
+		buffer.append("){\n");
+		compileGotoStmt(buffer, labels, ifStmt.getTarget(), method);
+		buffer.append("}\n");
+		writer.write(buffer.toString());
 	}
 
-	public void compileGotoStmt(Writer writer, SootClass sootClass, SootMethod method, Body b, Chain<Local> locals,
-			PatchingChain<Unit> patchingChain, GotoStmt ifStmt, String phaseName, Map<String, String> options)
-			throws IOException {
-		// TODO
-		
+	public void compileGotoStmt(StringBuffer buffer, List<Label> labels, Unit unit, SootMethod method) {
+		boolean labeled = false;
+		for (int i = 0; i < labels.size() && !labeled; i++) {
+			if (unit.equals(labels.get(i).getUnit())) {
+				labeled = true;
+				buffer.append("__label__control=\"" + labels.get(i).getLabel() + "\";\n");
+				buffer.append("break " + method.getName() + "_Loop;\n");
+			}
+		}
+	}
+
+	public void compileGotoStmt(List<Label> labels, Writer writer, SootClass sootClass, SootMethod method, Body b,
+			Chain<Local> locals, PatchingChain<Unit> patchingChain, GotoStmt ifStmt, String phaseName,
+			Map<String, String> options) throws IOException {
+		StringBuffer buffer = new StringBuffer();
+		compileGotoStmt(buffer, labels, ifStmt.getTarget(), method);
+		writer.write(buffer.toString());
 	}
 
 	public void compileReturnVoidStmt(Writer writer, SootClass sootClass, SootMethod method, Body b,
@@ -375,16 +443,18 @@ public class SwiftTransformHelper extends TransformHelper {
 			Map<String, String> options) throws IOException {
 		Unit unit = patchingChain.getFirst();
 		boolean override = false;
-		writer.write("let __label__control=\"START\";\n");
-		writer.write("while(__label__control != \"STOP\"){\n");
-		writer.write("switch (__label__control){\n");
-		writer.write("default:");
+		if (labels.size() > 0) {
+			writer.write("let __label__control=\"START\";\n");
+			writer.write(method.getName() + "_Loop: while(__label__control != \"STOP\"){\n");
+			writer.write("switch (__label__control){\n");
+			writer.write("case \"START\":\n");
+		}
 		do {
-			boolean  labeled =  false;
-			for(int i=0;i<labels.size()&&!labeled;i++) {
-				if(unit.equals(labels.get(i).getUnit())) {
+			boolean labeled = false;
+			for (int i = 0; i < labels.size() && !labeled; i++) {
+				if (unit.equals(labels.get(i).getUnit())) {
 					labeled = true;
-					writer.write("case \""+labels.get(i).getLabel()+"\":");
+					writer.write("case \"" + labels.get(i).getLabel() + "\":\n");
 				}
 			}
 			if (unit instanceof IdentityStmt) {
@@ -401,10 +471,11 @@ public class SwiftTransformHelper extends TransformHelper {
 				override = override || tmp;
 			} else if (unit instanceof IfStmt) {
 				IfStmt ifStmt = (IfStmt) unit;
-				compileIfStmt(writer, sootClass, method, b, locals, patchingChain, ifStmt, phaseName, options);
+				compileIfStmt(labels, writer, sootClass, method, b, locals, patchingChain, ifStmt, phaseName, options);
 			} else if (unit instanceof soot.jimple.internal.JGotoStmt) {
 				soot.jimple.internal.JGotoStmt gotoStmt = (soot.jimple.internal.JGotoStmt) unit;
-				compileGotoStmt(writer, sootClass, method, b, locals, patchingChain, gotoStmt, phaseName, options);
+				compileGotoStmt(labels, writer, sootClass, method, b, locals, patchingChain, gotoStmt, phaseName,
+						options);
 			} else if (unit instanceof ReturnVoidStmt) {
 				ReturnVoidStmt returnStmt = (ReturnVoidStmt) unit;
 				compileReturnVoidStmt(writer, sootClass, method, b, locals, patchingChain, returnStmt, phaseName,
@@ -417,8 +488,10 @@ public class SwiftTransformHelper extends TransformHelper {
 			}
 			unit = patchingChain.getSuccOf(unit);
 		} while (unit != null);
-		writer.write("}\n");
-		writer.write("}\n");
+		if (labels.size() > 0) {
+			writer.write("}\n");
+			writer.write("}\n");
+		}
 		return override;
 	}
 
@@ -440,6 +513,37 @@ public class SwiftTransformHelper extends TransformHelper {
 		defineLocals(writer, sootClass, method, b, locals, patchingChain, phaseName, options);
 		List<Label> labels = preCompile(patchingChain);
 		return compilePatchingChain(labels, writer, sootClass, method, b, locals, patchingChain, phaseName, options);
+	}
+
+	public static Map<String, String> classDeclare = new HashMap<String, String>();
+
+	protected void addClassDeclare(Body b) {
+		synchronized (classDeclare) {
+			SootMethod method = b.getMethod();
+			SootClass sootClass = method.getDeclaringClass();
+			String className;
+			synchronized (classDeclare) {
+				if (!classDeclare.containsKey(sootClass.getType().getClassName())) {
+					className = ("class " + sootClass.getType().getClassName().replace('.', '_') + ":"
+							+ sootClass.getSuperclass().getType().getClassName().replace('.', '_') + "{\n");
+					if (sootClass.getFieldCount() > 0) {
+						Chain<SootField> fields = sootClass.getFields();
+						SootField field = fields.getFirst();
+						do {
+							className += "var " + field.getName() + " : " + fromJavaType(field.getType()) + ";\n";
+							field = fields.getSuccOf(field);
+						} while (field != null);
+					}
+					classDeclare.put(sootClass.getType().getClassName(), className);
+				}
+			}
+		}
+	}
+
+	@Override
+	protected void internalTransform(Body b, String phaseName, Map<String, String> options) {
+		super.internalTransform(b, phaseName, options);
+		addClassDeclare(b);
 	}
 
 	@Override

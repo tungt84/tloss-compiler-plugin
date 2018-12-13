@@ -6,8 +6,6 @@ import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.lang.reflect.Modifier;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -100,7 +98,7 @@ public class SwiftTransformHelper extends TransformHelper {
 		if (value instanceof AbstractInstanceFieldRef) {
 			AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
 			writer.append(toVariableName(abstractInstanceFieldRef.getBase().toString()) + "."
-					+ abstractInstanceFieldRef.getField().getName());
+					+ abstractInstanceFieldRef.getField().getName()+"!");
 			return false;
 		}
 		writer.append(toVariableName(box.getValue().toString()));
@@ -151,7 +149,7 @@ public class SwiftTransformHelper extends TransformHelper {
 		} else if (value instanceof AbstractInstanceFieldRef) {
 			AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
 			writer.append(toVariableName(abstractInstanceFieldRef.getBase().toString()) + "."
-					+ abstractInstanceFieldRef.getField().getName());
+					+ abstractInstanceFieldRef.getField().getName()+"!");
 			return false;
 		} else if (value instanceof soot.jimple.StaticFieldRef) {
 			soot.jimple.StaticFieldRef staticFieldRef = (soot.jimple.StaticFieldRef) value;
@@ -530,7 +528,7 @@ public class SwiftTransformHelper extends TransformHelper {
 						Chain<SootField> fields = sootClass.getFields();
 						SootField field = fields.getFirst();
 						do {
-							className += "var " + field.getName() + " : " + fromJavaType(field.getType()) + ";\n";
+							className += "var " + field.getName() + " : " + fromJavaType(field.getType()) + "?;\n";
 							field = fields.getSuccOf(field);
 						} while (field != null);
 					}
@@ -550,6 +548,7 @@ public class SwiftTransformHelper extends TransformHelper {
 	protected void internalTransform(OutputStream outputStream, SootClass sootClass, SootMethod method, Body b,
 			Chain<Local> locals, PatchingChain<Unit> patchingChain, String phaseName, Map<String, String> options)
 			throws IOException {
+		
 		if ("<init>".equals(method.getName())) {
 			// ham khoi tao
 			OutputStreamWriter writer = new OutputStreamWriter(outputStream, "utf-8");

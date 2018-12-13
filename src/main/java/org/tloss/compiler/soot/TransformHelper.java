@@ -47,7 +47,7 @@ public abstract class TransformHelper extends soot.BodyTransformer {
 			buffer.append("-------------------------------\n");
 			buffer.append("sootClass:").append(sootClass.getType().getClassName()).append("\n");
 			buffer.append("methodName:").append(method.getName()).append("\n");
-			buffer.append("isDeclared:").append(method.isDeclared()).append("\n");
+			buffer.append("isDeclared:").append(method.getSource()).append("\n");
 			buffer.append("Modifiers:").append(method.getModifiers()).append("\n");
 			buffer.append("ReturnType:").append(method.getReturnType()).append("\n");
 			int count = method.getParameterCount();

@@ -579,6 +579,9 @@ public class SwiftTransformHelper extends TransformHelper {
 				writer.write("static ");
 			}
 			int count = method.getParameterCount();
+			if(sootClass.getSuperclass().declaresMethod(method.getSubSignature())) {
+				writer.write(" override ");
+			}
 			writer.write("func ");
 			writer.write(method.getName());
 			writer.write("(");

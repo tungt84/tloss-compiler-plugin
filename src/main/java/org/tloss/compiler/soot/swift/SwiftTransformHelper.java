@@ -98,7 +98,7 @@ public class SwiftTransformHelper extends TransformHelper {
 		if (value instanceof AbstractInstanceFieldRef) {
 			AbstractInstanceFieldRef abstractInstanceFieldRef = (AbstractInstanceFieldRef) value;
 			writer.append(toVariableName(abstractInstanceFieldRef.getBase().toString()) + "."
-					+ abstractInstanceFieldRef.getField().getName()+"!");
+					+ abstractInstanceFieldRef.getField().getName());
 			return false;
 		}
 		writer.append(toVariableName(box.getValue().toString()));

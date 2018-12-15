@@ -63,6 +63,7 @@ public class TlossCompiler {
 					config.getProperty("COMPILE_OUT_FOLDER","")+
 					entry.getKey() + "." + config.getProperty("COMPILE_EXT_FILE", "tmp"));
 			CompileClassHelper classHelper = (CompileClassHelper)Class.forName(config.getProperty("COMPILE_CLASS_HELPER_CLASS")).newInstance();
+			classHelper.setConfig(config);
 			classHelper.compilePreClass(fileOutputStream,entry.getKey());
 			dir.listFiles(new FileFilter() {
 				public boolean accept(File pathname) {
